@@ -1,0 +1,124 @@
+# Nightwatch
+
+An unattended local Codex CLI worker for Markdown tasks. Python 3.10+; no Python packages required.
+
+## Setup
+
+Clone this repository, install a current Codex CLI, and authenticate with `codex login`.
+From this directory run `./setup` on Linux, or `setup.cmd` on Windows (Python's `py` launcher required).
+Setup asks for an existing default working directory, Codex executable, local start/end hours,
+polling interval, and optional model. Each clone has its own ignored `.nightwatch/config.json`.
+No machine-specific settings or credentials are committed. Equal start/end times are rejected.
+An overnight window such as 22:00–07:00 works. Time follows the machine's local clock, including DST;
+only task starts are restricted. Running tasks finish even after the window closes.
+
+On Windows, select the native `codex.exe` (not an npm `codex.cmd` shim). For an npm installation,
+locate it under that package's platform-specific vendor directory, or install the standalone
+native CLI. Configure Codex's Windows sandbox interactively before unattended use. Nightwatch
+never falls back to an unsandboxed runner. Unsupported CLI flags fail setup with an update message.
+
+## Tasks
+
+Write UTF-8 `.md` files in `todo/`:
+
+```markdown
+# Update the project documentation
+
+In the widget project under the configured working directory, check that README
+installation steps agree with the package scripts. Fix inaccuracies and report
+what changed. Do not publish anything.
+```
+
+Files are claimed by oldest modification time (filename breaks ties). Editing a task places it
+later in the queue. Save completely before moving files into `todo/`; use an editor outside the
+queue or an atomic rename. Only regular, non-symlink Markdown files are selected. Queues are flat.
+
+- `todo/`: pending prompts.
+- `processing/`: claimed task. Any entry other than `.gitkeep` blocks new claims.
+- `done/`: completed task with an appended dated Markdown report.
+- `needs_feedback/`: questions, permission blockers, CLI failures, invalid results, or recovered interruptions.
+
+Answer questions directly in the task, review partial changes, then move it back to `todo/`.
+Requeued tasks start fresh Codex sessions with the entire Markdown history. No automatic retries.
+Destination filename collisions get a unique suffix; old results are never overwritten.
+Task files, configuration, transcripts, and runtime state are ignored by Git. Keep your own backups.
+Queue placeholders are `.gitkeep`; all prompts and appended reports are Markdown. Internal protocol
+and configuration files use JSON.
+
+## Run and stop
+
+```sh
+./start --foreground        # Linux/macOS: stay attached overnight
+./shutdown                 # From another terminal; finish the active task, then exit
+python3 -m nightwatch once # At most one task; observes schedule and shutdown marker
+python3 -m nightwatch status
+```
+
+Windows: `start.cmd --foreground`, `shutdown.cmd`, and `py -3 -m nightwatch status`.
+Foreground mode works without installing any service. Keep the terminal open and prevent the
+machine from sleeping if you want overnight work. Native Windows has no automatic service installer
+in this version. Closing the terminal or shutting down the OS can interrupt execution.
+
+A shutdown request remains in `.nightwatch/stop` until the next `start`/`run`, which clears it.
+`once` respects this marker. Ctrl+C or SIGTERM asks the daemon to drain gracefully; Codex runs in
+its own process group. No execution deadline is imposed: a hung task requires manual investigation.
+
+## Linux service and reboot survival
+
+Setup optionally installs a per-clone systemd user service. You can also run
+`python3 -m nightwatch install-service`. It enables startup but does not start processing until
+`./start`. Once installed, `./start` starts the service; `./start --foreground` remains available.
+OS locks prevent multiple workers from claiming concurrently. The service uses the setup Python
+interpreter and absolute repository path; reinstall it if you move the clone.
+
+For boot without logging in, run `loginctl enable-linger "$USER"`. This may require administrator
+permission and keeps user services alive after logout. Setup displays this command rather than
+silently changing account policy. `./shutdown` drains the service without disabling next-boot startup.
+
+Find the unit name with `systemctl --user list-unit-files 'nightwatch-*'`.
+Inspect it using `journalctl --user -u UNIT_NAME`. Disable startup with
+`systemctl --user disable UNIT_NAME`; then use `./shutdown`. After it has stopped, delete the unit
+from `~/.config/systemd/user/` and run `systemctl --user daemon-reload` to uninstall it.
+
+## Permissions and Codex integration
+
+Nightwatch uses `codex exec`, a structured final-response schema, `workspace-write`, and
+`approval_policy="never"`. Changes inside the selected working directory are authorized; requests
+for additional permissions or decisions must become feedback. User config and exec-policy rules
+are ignored so broad personal approvals aren't inherited. Existing Codex authentication still applies.
+Network access from sandboxed commands is explicitly disabled. The Codex client itself still needs
+network access to contact the model service. No API key is stored by Nightwatch.
+
+The OS sandbox is the execution boundary, not a prompt-based guarantee. Codex can normally read
+outside the working directory and may write to permitted temporary directories. Project instructions
+still apply. Choose your working directory deliberately; a projects directory permits edits across
+its projects. If Nightwatch itself is under that directory, it is also inside that writable scope.
+Use trusted tasks and review results. Model-reported completion is validated structurally, not proof
+that the requested work was done correctly. Nightwatch does not roll back changes on failure.
+
+See [official noninteractive Codex documentation](https://developers.openai.com/codex/noninteractive).
+Setup checks the installed CLI for the integration flags. Execution transcripts are retained as
+`.nightwatch/RUN_ID/transcript.md`; protocol results and schema are stored beside them. These can
+contain task data. There is no automatic log cleanup.
+
+## Interrupted work
+
+Crashes and reboot leave the task in `processing/`, blocking duplicate execution. Check that no
+orphaned Codex process is still working and review changes before running:
+
+```sh
+python3 -m nightwatch recover --reason "Execution interrupted; reviewed changes. Need to finish validation."
+```
+
+Recovery refuses while the worker lock is held and moves the task to `needs_feedback/` with the
+reason appended. It never reruns work. An unexpected non-Markdown processing entry must be handled
+manually. The queue lock protects this clone on a local filesystem, not separate clones or hosts.
+Use local storage, not a shared network drive.
+
+## Development
+
+`python3 -m unittest discover -s tests -v`
+
+Tests use temporary queues and a fake Codex executable; they incur no model usage and make no
+external changes. Linux is locally tested. Windows-specific locking and launchers require Windows
+validation; the CI matrix exercises the portable suite on Linux and Windows.

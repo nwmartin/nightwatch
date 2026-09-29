@@ -1,0 +1,8 @@
+.nightwatch/
+__pycache__/
+*.pyc
+/todo/*
+/processing/*
+/done/*
+/needs_feedback/*
+!/**/.gitkeep
