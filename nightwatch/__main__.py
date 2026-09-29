@@ -32,7 +32,7 @@ Description=Nightwatch Markdown task queue
 [Service]
 Type=simple
 Environment={quote("PATH=" + os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"))}
-WorkingDirectory={quote(root)}
+WorkingDirectory={str(root).replace('%', '%%')}
 ExecStart={quote(sys.executable)} -m nightwatch run
 Restart=on-failure
 RestartSec=10
