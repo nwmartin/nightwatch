@@ -71,12 +71,23 @@ class QueueTests(unittest.TestCase):
     @unittest.skipIf(os.name=='nt','Executable fake uses a Unix shebang')
     def test_codex_subprocess_contract(self):
         fake=self.root/'fake-codex'
-        fake.write_text('#!'+sys.executable+'\nimport sys,json\nfrom pathlib import Path\na=sys.argv\nassert "--sandbox" in a and a[a.index("--sandbox")+1]=="workspace-write"\nassert \'approval_policy="never"\' in a\nassert "TASK MARKDOWN:" in sys.stdin.read()\nPath(a[a.index("--output-last-message")+1]).write_text(json.dumps({"status":"completed","report":"Fake validation passed."}))\n')
+        fake.write_text('#!'+sys.executable+'\nimport sys,json\nfrom pathlib import Path\na=sys.argv\nassert "--sandbox" in a and a[a.index("--sandbox")+1]=="workspace-write"\nassert \'approval_policy="never"\' in a\nprompt=sys.stdin.read()\nassert "TASK MARKDOWN:" in prompt\nPath(a[a.index("--output-last-message")+1]).with_name("prompt.md").write_text(prompt,encoding="utf-8")\nPath(a[a.index("--output-last-message")+1]).write_text(json.dumps({"status":"completed","report":"Fake validation passed."}))\n')
         fake.chmod(0o755)
         c=dict(self.c,codex=str(fake),working_directory=str(self.root))
         self.task()
         tick(self.root,c,now=self.now)
         self.assertIn('Fake validation passed.',(self.root/'done/task.md').read_text())
+        captured=next((self.root/'.nightwatch').glob('*/prompt.md')).read_text(encoding='utf-8')
+        context_text, markdown=captured.split('TASK CONTEXT (JSON):\n',1)[1].split('\n\nTASK MARKDOWN:\n',1)
+        context=json.loads(context_text)
+        self.assertEqual(context['task_filename'],'task.md')
+        self.assertEqual(context['task_file'],str(self.root/'processing/task.md'))
+        self.assertEqual(context['original_todo_file'],str(self.root/'todo/task.md'))
+        self.assertEqual(context['working_directory'],str(self.root))
+        self.assertEqual(context['queue_state'],'processing')
+        self.assertEqual(markdown,'Do something')
+        self.assertTrue(context['run_id'])
+
 
     @unittest.skipIf(os.name=='nt','Executable fake uses a Unix shebang')
     def test_bad_codex_result_routes_to_feedback(self):

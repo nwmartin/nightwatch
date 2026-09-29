@@ -8,6 +8,7 @@ import signal
 import subprocess
 import sys
 import time
+from .console import Console
 from .core import initialize, config, tick, lock, allowed, finish
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -90,13 +91,24 @@ def run(root):
         signal.signal(signal.SIGTERM,request_stop)
         signal.signal(signal.SIGINT,request_stop)
         # Child starts in a separate process group so Ctrl+C requests a graceful stop.
-        while not stop.exists():
-            c = config(root)
-            print(tick(root,c),flush=True)
-            deadline = time.monotonic()+c['poll_seconds']
-            while time.monotonic()<deadline and not stop.exists():
-                time.sleep(min(0.5,max(0,deadline-time.monotonic())))
-        print('Nightwatch stopped; no further tasks will be claimed.',flush=True)
+        with Console() as console:
+            console.log('Nightwatch started. Ctrl+C or ./shutdown stops after the current task.')
+            while not stop.exists():
+                c = config(root)
+                result = tick(root, c, on_event=console.event)
+                messages = {
+                    'empty': 'Waiting for tasks',
+                    'busy': 'Waiting for another worker',
+                    'blocked: processing is not empty': 'Blocked: processing contains an unfinished task; inspect before recovery',
+                    'outside permitted hours': f"Waiting for permitted hours ({c['start']}–{c['end']} local)",
+                    'stopping': 'Shutting down',
+                }
+                console.status(messages.get(result, 'Waiting for next queue check'))
+                deadline = time.monotonic()+c['poll_seconds']
+                while time.monotonic()<deadline and not stop.exists():
+                    time.sleep(min(0.5,max(0,deadline-time.monotonic())))
+            console.log('Nightwatch stopped; no further tasks will be claimed.')
+
 
 
 def main():
@@ -114,6 +126,8 @@ def main():
         unit=Path.home()/'.config/systemd/user'/service_name(root)
         if args.command=='start' and not args.foreground and sys.platform.startswith('linux') and unit.exists():
             subprocess.run(['systemctl','--user','start',service_name(root)],check=True)
+            print('Nightwatch service started. Use ./start --foreground for the live console when the service is stopped.')
+            print('Service logs: journalctl --user -f -u ' + service_name(root))
         else:run(root)
     elif args.command=='once':print(tick(root,config(root)))
     elif args.command=='shutdown':

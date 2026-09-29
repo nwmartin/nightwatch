@@ -77,7 +77,17 @@ def finish(root, task, status, report):
     return destination
 
 
-def run_codex(root, c, prompt, run_id):
+def run_codex(root, c, task, run_id):
+    prompt = task.read_text(encoding='utf-8')
+    context = {
+        'task_filename': task.name,
+        'task_file': str(task.resolve()),
+        'original_todo_file': str((root/'todo'/task.name).resolve()),
+        'queue_state': 'processing',
+        'nightwatch_directory': str(root.resolve()),
+        'working_directory': c['working_directory'],
+        'run_id': run_id,
+    }
     run = root/'.nightwatch'/run_id
     run.mkdir()
     schema = run/'schema.json'
@@ -100,8 +110,15 @@ seek interactive approval. Return completed only if all requested work is comple
 Return failed for other failures. Previous Nightwatch reports are history; the user's
 new answers may resolve earlier blockers. Do not silently repeat completed side effects.
 
-TASK MARKDOWN:
+The task file paths below identify the prompt being performed; they are context,
+not permission to edit or move queue files. Nightwatch appends your report and moves
+the task after you return. Use the configured working directory for task work, not
+the processing directory. The complete task Markdown is included below, so you do
+not need to reopen the task file.
+
+TASK CONTEXT (JSON):
 '''
+    instructions += json.dumps(context, ensure_ascii=False, indent=2) + '\n\nTASK MARKDOWN:\n' 
     with (run/'transcript.md').open('w', encoding='utf-8') as log:
         log.write('# Codex execution transcript\n\n'); log.flush()
         result = subprocess.run(command, input=instructions+prompt, text=True,
@@ -116,7 +133,7 @@ TASK MARKDOWN:
     return data
 
 
-def tick(root, c, runner=run_codex, now=None):
+def tick(root, c, runner=run_codex, now=None, on_event=None):
     with lock(root) as acquired:
         if not acquired:
             return 'busy'
@@ -133,10 +150,16 @@ def tick(root, c, runner=run_codex, now=None):
         source = min(tasks, key=lambda p: (p.stat().st_mtime_ns, p.name))
         task = root/'processing'/source.name
         source.rename(task)
+        if on_event:
+            on_event('started', task)
         run_id = uuid.uuid4().hex
         try:
-            data = runner(root, c, task.read_text(encoding='utf-8'), run_id)
-            destination = finish(root, task, data['status'], data['report'])
+            data = runner(root, c, task, run_id)
+            outcome = data['status']
+            destination = finish(root, task, outcome, data['report'])
         except Exception as exc:
+            outcome = 'failed'
             destination = finish(root, task, 'failed', f'{type(exc).__name__}: {exc}\n\nInspect any partial changes before editing this task and moving it back to todo. No automatic retry was attempted.')
+        if on_event:
+            on_event('finished', destination, outcome)
         return str(destination)

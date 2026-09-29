@@ -39,6 +39,10 @@ queue or an atomic rename. Only regular, non-symlink Markdown files are selected
 - `needs_feedback/`: questions, permission blockers, CLI failures, invalid results, or recovered interruptions.
 
 Answer questions directly in the task, review partial changes, then move it back to `todo/`.
+Every Codex invocation receives the task filename, its absolute `processing/` path,
+original `todo/` path, queue state, Nightwatch directory, working directory, and run ID
+as explicit context, followed by the complete Markdown content. Queue paths identify
+the task; Nightwatch alone appends reports and moves queue files.
 Requeued tasks start fresh Codex sessions with the entire Markdown history. No automatic retries.
 Destination filename collisions get a unique suffix; old results are never overwritten.
 Task files, configuration, transcripts, and runtime state are ignored by Git. Keep your own backups.
@@ -55,6 +59,12 @@ python3 -m nightwatch status
 ```
 
 Windows: `start.cmd --foreground`, `shutdown.cmd`, and `py -3 -m nightwatch status`.
+An interactive foreground terminal shows a waiting spinner when `todo/` is empty and
+a filename spinner while Codex is working. Timestamped started/processed lines remain
+in the console, including the destination queue and outcome. Outside-hours and blocked
+processing states have distinct messages. Redirected output and service journals use
+plain text and only log status changes.
+
 Foreground mode works without installing any service. Keep the terminal open and prevent the
 machine from sleeping if you want overnight work. Native Windows has no automatic service installer
 in this version. Closing the terminal or shutting down the OS can interrupt execution.
