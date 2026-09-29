@@ -23,8 +23,9 @@ def initialize(root):
 def lock(root, name='worker'):
     """OS locks survive neither crashes nor reboot; never unlink the lock file."""
     with (root/'.nightwatch'/f'{name}.lock').open('a+b') as f:
-        f.seek(0)
-        if not f.read(1):
+        # Windows byte-range locks also block reads. Inspect file size without
+        # touching the locked byte before attempting the nonblocking lock.
+        if os.fstat(f.fileno()).st_size == 0:
             f.write(b'0'); f.flush()
         f.seek(0)
         try:

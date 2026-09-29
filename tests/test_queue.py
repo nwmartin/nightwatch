@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch, MagicMock
 from nightwatch.core import initialize, tick, allowed, lock, run_codex
 
 
@@ -58,6 +59,21 @@ class QueueTests(unittest.TestCase):
             output=subprocess.check_output([sys.executable,'-c',code],text=True)
             self.assertEqual(output.strip(),'False')
         with lock(self.root) as acquired:self.assertTrue(acquired)
+    def test_contended_windows_lock_does_not_read_locked_byte(self):
+        handle = MagicMock()
+        handle.fileno.return_value = 123
+        handle.read.side_effect = PermissionError('byte is locked by another process')
+        handle.__enter__.return_value = handle
+        windows = MagicMock()
+        windows.locking.side_effect = OSError('lock unavailable')
+        with patch('nightwatch.core.os.name', 'nt'), patch.dict(sys.modules, {'msvcrt': windows}), \
+             patch.object(Path, 'open', return_value=handle), \
+             patch('nightwatch.core.os.fstat', return_value=type('Stat', (), {'st_size': 1})()):
+            with lock(self.root) as acquired:
+                self.assertFalse(acquired)
+        handle.read.assert_not_called()
+        windows.locking.assert_called_once()
+
     def test_interruption_preserves_claim(self):
         self.task()
         def crash(*args):raise KeyboardInterrupt()
