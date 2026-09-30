@@ -16,10 +16,55 @@ class QueueTests(unittest.TestCase):
         self.root=Path(self.temp.name);initialize(self.root)
         self.c={'start':'22:00','end':'07:00'}
         self.now=datetime(2026,1,1,23)
+        quota = patch('nightwatch.quota.remaining_quota', return_value=100)
+        self.quota = quota.start()
+        self.addCleanup(quota.stop)
     def task(self,name='task.md',text='Do something'):
         p=self.root/'todo'/name;p.write_text(text);return p
     def run_task(self,runner=None):
         return tick(self.root,self.c,runner or (lambda *args:{'status':'completed','report':'Validated.'}),self.now)
+    def test_low_quota_leaves_task_unclaimed(self):
+        source = self.task()
+        original = source.read_bytes()
+        self.quota.return_value = 4
+        runner = MagicMock()
+        self.assertIn('below 5%', self.run_task(runner))
+        runner.assert_not_called()
+        self.assertEqual(source.read_bytes(), original)
+        self.assertEqual(list((self.root/'processing').iterdir()), [])
+
+    def test_exact_threshold_is_allowed(self):
+        self.task()
+        self.quota.return_value = 5
+        self.run_task()
+        self.assertTrue((self.root/'done/task.md').exists())
+
+    def test_custom_threshold_and_quota_failure(self):
+        source = self.task()
+        self.c['quota_threshold_percent'] = 10
+        self.quota.return_value = 9
+        self.assertIn('below 10%', self.run_task())
+        self.quota.side_effect = ValueError('Unavailable')
+        self.assertIn('Cannot check remaining quota: Unavailable', self.run_task())
+        self.assertTrue(source.exists())
+
+    def test_no_quota_request_without_eligible_work(self):
+        self.assertEqual(self.run_task(), 'empty')
+        self.task()
+        tick(self.root, self.c, now=datetime(2026,1,1,12))
+        (self.root/'.nightwatch/stop').touch()
+        self.run_task()
+        self.quota.assert_not_called()
+
+    def test_shutdown_during_quota_read_prevents_claim(self):
+        source = self.task()
+        def quota(c):
+            (self.root/'.nightwatch/stop').touch()
+            return 100
+        self.quota.side_effect = quota
+        self.assertEqual(self.run_task(), 'stopping')
+        self.assertTrue(source.exists())
+
     def test_hours(self):
         for hour,expected in [(0,True),(6,True),(7,False),(21,False),(22,True)]:
             self.assertEqual(allowed('22:00','07:00',datetime(2026,1,1,hour)),expected)

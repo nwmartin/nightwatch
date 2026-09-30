@@ -7,7 +7,12 @@ An unattended local Codex CLI worker for Markdown tasks. Python 3.10+; no Python
 Clone this repository, install a current Codex CLI, and authenticate with `codex login`.
 From this directory run `./setup` on Linux, or `setup.cmd` on Windows (Python's `py` launcher required).
 Setup asks for an existing default working directory, Codex executable, local start/end hours,
-polling interval, and optional model. Each clone has its own ignored `.nightwatch/config.json`.
+polling interval, remaining quota threshold, and optional model. Press Enter to accept the displayed defaults: the clone’s
+parent directory, Codex from PATH, 22:00–07:00, a 60-second interval, a 5% quota threshold, and the CLI’s default model.
+When replacing a configuration, saved values become the defaults. Invalid answers display an
+error immediately and retry that question without losing earlier answers. Times use local HH:MM
+(24-hour format); an hour such as 7:00 is accepted and saved as 07:00. Yes/no prompts accept
+`y`/`yes` and `n`/`no`, defaulting to no. Each clone has its own ignored `.nightwatch/config.json`.
 No machine-specific settings or credentials are committed. Equal start/end times are rejected.
 An overnight window such as 22:00–07:00 works. Time follows the machine's local clock, including DST;
 only task starts are restricted. Running tasks finish even after the window closes.
@@ -54,11 +59,24 @@ and configuration files use JSON.
 ```sh
 ./start --foreground        # Linux/macOS: stay attached overnight
 ./shutdown                 # From another terminal; finish the active task, then exit
+./status                   # Show daemon, latest processing window, and queue contents
 python3 -m nightwatch once # At most one task; observes schedule and shutdown marker
-python3 -m nightwatch status
 ```
 
-Windows: `start.cmd --foreground`, `shutdown.cmd`, and `py -3 -m nightwatch status`.
+Windows: `start.cmd --foreground`, `shutdown.cmd`, and `status.cmd`.
+
+`status` lists the tasks started in the latest configured time window, with their
+outcomes (`completed`, `needs_feedback`, or `failed`), start/finish times, and paths
+to their Markdown reports. An unfinished entry says `started`, which can mean a
+task is running or execution was interrupted. The worker keeps this information
+in `.nightwatch/latest-window.json`, replacing it on its first check inside a new
+window, even if there are no tasks. Overnight windows share one record across
+midnight; tasks that finish after the window closes stay in that window's record.
+During the day, the previous window remains visible. Before the first worker check
+after this feature is installed, status reports that no history has been recorded;
+existing archived tasks are not backfilled. No database is needed.
+Status reports `Daemon: running` or `Daemon: stopped` using the daemon's process lock,
+then lists the tasks in each queue. It does not start or stop the daemon.
 An interactive foreground terminal shows a waiting spinner when `todo/` is empty and
 a filename spinner while Codex is working. Timestamped started/processed lines remain
 in the console, including the destination queue and outcome. Outside-hours and blocked
@@ -72,6 +90,21 @@ in this version. Closing the terminal or shutting down the OS can interrupt exec
 A shutdown request remains in `.nightwatch/stop` until the next `start`/`run`, which clears it.
 `once` respects this marker. Ctrl+C or SIGTERM asks the daemon to drain gracefully; Codex runs in
 its own process group. No execution deadline is imposed: a hung task requires manual investigation.
+
+Before claiming each eligible task, Nightwatch reads the authenticated account’s remaining quota
+using `codex app-server` (`account/rateLimits/read`), without starting a model turn. It uses the
+smaller remaining percentage of the reported primary and secondary quota windows. If that value
+is **below 5%**, the worker exits and leaves pending tasks untouched; exactly 5% is allowed.
+Setup lets you change this threshold (`quota_threshold_percent` in local configuration), from
+greater than 0 through 100 percent. Existing configurations default to 5%.
+
+An unavailable, invalid, or timed-out quota response also stops the worker before claiming work,
+with a console message. Use a CLI supporting the app-server quota interface and an account that
+reports percentage rate limits; accounts without those limits cannot run guarded tasks. Quota
+reads have a 30-second timeout. Restart Nightwatch after quota recovers or after fixing the check.
+A running task is allowed to finish and may consume more than the reserved percentage; this is
+a check between tasks, not a hard cap during execution. Quota checking needs the Codex client’s
+normal service connectivity, just as task execution does.
 
 ## Linux service and reboot survival
 

@@ -2,10 +2,12 @@
 from contextlib import contextmanager
 from datetime import datetime, time
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
 import uuid
+from .history import begin_window, save_history
 
 QUEUES = ('todo', 'processing', 'done', 'needs_feedback')
 SCHEMA = {'type': 'object', 'properties': {
@@ -55,6 +57,18 @@ def allowed(start, end, now=None):
     return a <= current < b if a < b else current >= a or current < b
 
 
+def quota_threshold(value):
+    if isinstance(value, bool):
+        raise ValueError('Quota threshold must be greater than 0 and at most 100 percent.')
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        raise ValueError('Quota threshold must be greater than 0 and at most 100 percent.') from None
+    if not math.isfinite(value) or not 0 < value <= 100:
+        raise ValueError('Quota threshold must be greater than 0 and at most 100 percent.')
+    return value
+
+
 def config(root):
     c = json.loads((root/'.nightwatch/config.json').read_text(encoding='utf-8'))
     if not Path(c['working_directory']).is_absolute() or not Path(c['working_directory']).is_dir():
@@ -64,6 +78,7 @@ def config(root):
         raise ValueError('poll_seconds must be a positive integer.')
     if not Path(c['codex']).is_file():
         raise ValueError('Configured Codex executable does not exist.')
+    c['quota_threshold_percent'] = quota_threshold(c.get('quota_threshold_percent', 5))
     return c
 
 
@@ -134,10 +149,11 @@ TASK CONTEXT (JSON):
     return data
 
 
-def tick(root, c, runner=run_codex, now=None, on_event=None):
+def tick(root, c, runner=run_codex, now=None, on_event=None, quota_reader=None):
     with lock(root) as acquired:
         if not acquired:
             return 'busy'
+        history = begin_window(root, c, now) if allowed(c['start'], c['end'], now) else None
         # Even unexpected non-Markdown files block the queue, but tracked placeholders do not.
         if any(p.name != '.gitkeep' for p in (root/'processing').iterdir()):
             return 'blocked: processing is not empty'
@@ -148,12 +164,31 @@ def tick(root, c, runner=run_codex, now=None, on_event=None):
         tasks = [p for p in (root/'todo').iterdir() if p.suffix.lower()=='.md' and p.is_file() and not p.is_symlink()]
         if not tasks:
             return 'empty'
+        from .quota import remaining_quota
+        try:
+            threshold = quota_threshold(c.get('quota_threshold_percent', 5))
+            remaining = (quota_reader or remaining_quota)(c)
+            if isinstance(remaining, bool) or not isinstance(remaining, (int, float)) or not math.isfinite(remaining) or not 0 <= remaining <= 100:
+                raise ValueError('Invalid remaining quota percentage.')
+        except Exception as exc:
+            return f'quota stop: Cannot check remaining quota: {exc}'
+        if remaining < threshold:
+            return f'quota stop: Remaining quota {remaining:g}% is below {threshold:g}%.'
+        # A quota read may take long enough for shutdown or the daily window to change.
+        if (root/'.nightwatch/stop').exists():
+            return 'stopping'
+        if not allowed(c['start'], c['end'], now):
+            return 'outside permitted hours'
         source = min(tasks, key=lambda p: (p.stat().st_mtime_ns, p.name))
         task = root/'processing'/source.name
         source.rename(task)
         if on_event:
             on_event('started', task)
         run_id = uuid.uuid4().hex
+        entry = {'filename': task.name, 'run_id': run_id, 'status': 'started',
+                 'started_at': (now or datetime.now().astimezone()).isoformat()}
+        history['tasks'].append(entry)
+        save_history(root, history)
         try:
             data = runner(root, c, task, run_id)
             outcome = data['status']
@@ -161,6 +196,9 @@ def tick(root, c, runner=run_codex, now=None, on_event=None):
         except Exception as exc:
             outcome = 'failed'
             destination = finish(root, task, 'failed', f'{type(exc).__name__}: {exc}\n\nInspect any partial changes before editing this task and moving it back to todo. No automatic retry was attempted.')
+        entry.update(status=outcome, finished_at=datetime.now().astimezone().isoformat(),
+                     destination=str(destination.relative_to(root)))
+        save_history(root, history)
         if on_event:
             on_event('finished', destination, outcome)
         return str(destination)
