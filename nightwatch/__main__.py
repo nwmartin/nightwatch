@@ -200,7 +200,9 @@ def main():
         with lock(root,'daemon') as acquired:print('Daemon: '+('stopped' if acquired else 'running'))
         print_history(root)
         for name in ('todo','processing','done','needs_feedback'):
-            print(name+': '+', '.join(p.name for p in sorted((root/name).iterdir()) if p.name!='.gitkeep'))
+            with os.scandir(root/name) as entries:
+                count = sum(1 for entry in entries if entry.name != '.gitkeep')
+            print(f'{name}: {count}')
     elif args.command=='recover':
         with lock(root) as acquired:
             if not acquired:raise ValueError('Worker is active; cannot recover.')
