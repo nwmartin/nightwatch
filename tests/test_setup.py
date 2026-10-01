@@ -44,7 +44,7 @@ class SetupTests(unittest.TestCase):
 
     def test_blank_answers_use_defaults(self):
         self.wizard([''] * 9)
-        self.assertEqual(self.saved(), dict(working_directory=str(self.parent),
+        self.assertEqual(self.saved(), dict(working_directory=str(self.parent.resolve()),
                          codex='/native/codex', start='22:00', end='07:00',
                          poll_seconds=60, quota_threshold_percent=5, model='', reasoning_effort='default'))
 
@@ -68,7 +68,9 @@ class SetupTests(unittest.TestCase):
                         start='09:00', end='17:00', poll_seconds=15, quota_threshold_percent=12, model='saved-model', reasoning_effort='xhigh')
         self.target.write_text(json.dumps(previous))
         self.wizard(['yes'] + [''] * 9)
-        self.assertEqual(self.saved(), previous)
+        # Setup canonicalizes paths, including Windows 8.3 directory aliases.
+        expected = dict(previous, working_directory=str(self.root.resolve()))
+        self.assertEqual(self.saved(), expected)
 
     def test_declining_replacement_leaves_file_untouched(self):
         self.target.write_text('original configuration')
