@@ -10,7 +10,7 @@ import subprocess
 import sys
 import time
 from .console import Console
-from .core import initialize, config, tick, lock, allowed, finish, quota_threshold
+from .core import initialize, config, tick, lock, allowed, finish, quota_threshold, reasoning_effort, REASONING_EFFORTS
 from .history import print_history
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -131,7 +131,8 @@ def setup(root):
     poll = ask('Check interval in seconds', previous.get('poll_seconds', 60), poll_value)
     threshold = ask('Stop below remaining quota (%)', previous.get('quota_threshold_percent', 5), quota_threshold)
     model = ask('Codex model (blank uses CLI default)', previous.get('model', ''), lambda answer: answer)
-    c = dict(working_directory=str(directory), codex=binary, start=start, end=end, poll_seconds=poll, quota_threshold_percent=threshold, model=model)
+    effort = ask('Reasoning effort / exertion (' + ', '.join(REASONING_EFFORTS) + ')', previous.get('reasoning_effort', 'default'), reasoning_effort)
+    c = dict(working_directory=str(directory), codex=binary, start=start, end=end, poll_seconds=poll, quota_threshold_percent=threshold, model=model, reasoning_effort=effort)
     temp = target.with_suffix('.tmp')
     temp.write_text(json.dumps(c, indent=2)+'\n', encoding='utf-8')
     temp.replace(target)

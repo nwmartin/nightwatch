@@ -165,3 +165,18 @@ Use local storage, not a shared network drive.
 Tests use temporary queues and a fake Codex executable; they incur no model usage and make no
 external changes. Linux is locally tested. Windows-specific locking and launchers require Windows
 validation; the CI matrix exercises the portable suite on Linux and Windows.
+
+## Reasoning effort (exertion)
+
+`./setup` asks for reasoning effort after the model. Choose `default` to leave the
+Codex/model default unchanged, or `none`, `minimal`, `low`, `medium`, `high`,
+`xhigh`, `max`, or `ultra`. Available levels depend on your model and CLI;
+Nightwatch validates the spelling, not model compatibility. Unsupported combinations
+are reported through the normal failure/feedback flow.
+
+The selection is saved as `reasoning_effort` in `.nightwatch/config.json` and passed
+as an explicit `model_reasoning_effort` Codex config override on every task. Existing
+configurations without this field retain their previous default behavior. Re-running
+setup preserves the previous selection; enter `default` to clear an override.
+
+See [Codex configuration reference](https://developers.openai.com/codex/config-reference#model_reasoning_effort).

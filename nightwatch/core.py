@@ -69,6 +69,15 @@ def quota_threshold(value):
     return value
 
 
+REASONING_EFFORTS = ('default', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra')
+
+
+def reasoning_effort(value):
+    if not isinstance(value, str) or value.strip().lower() not in REASONING_EFFORTS:
+        raise ValueError('Choose a reasoning effort: ' + ', '.join(REASONING_EFFORTS))
+    return value.strip().lower()
+
+
 def config(root):
     c = json.loads((root/'.nightwatch/config.json').read_text(encoding='utf-8'))
     if not Path(c['working_directory']).is_absolute() or not Path(c['working_directory']).is_dir():
@@ -78,6 +87,7 @@ def config(root):
         raise ValueError('poll_seconds must be a positive integer.')
     if not Path(c['codex']).is_file():
         raise ValueError('Configured Codex executable does not exist.')
+    c['reasoning_effort'] = reasoning_effort(c.get('reasoning_effort', 'default'))
     c['quota_threshold_percent'] = quota_threshold(c.get('quota_threshold_percent', 5))
     return c
 
@@ -114,6 +124,9 @@ def run_codex(root, c, task, run_id):
                '-c', 'sandbox_workspace_write.network_access=false',
                '--skip-git-repo-check', '--cd', c['working_directory'],
                '--output-schema', str(schema), '--output-last-message', str(output), '-']
+    effort = reasoning_effort(c.get('reasoning_effort', 'default'))
+    if effort != 'default':
+        command[2:2] = ['-c', 'model_reasoning_effort=' + json.dumps(effort)]
     if c.get('model'):
         command[2:2] = ['--model', c['model']]
     instructions = '''You are running an unattended Nightwatch task. Work only in the configured

@@ -43,17 +43,17 @@ class SetupTests(unittest.TestCase):
         return json.loads(self.target.read_text())
 
     def test_blank_answers_use_defaults(self):
-        self.wizard([''] * 8)
+        self.wizard([''] * 9)
         self.assertEqual(self.saved(), dict(working_directory=str(self.parent),
                          codex='/native/codex', start='22:00', end='07:00',
-                         poll_seconds=60, quota_threshold_percent=5, model=''))
+                         poll_seconds=60, quota_threshold_percent=5, model='', reasoning_effort='default'))
 
     def test_invalid_answers_retry_only_current_question(self):
         output = self.wizard([
             str(self.parent / 'missing'), '', 'codex.cmd', '',
             'tomorrow', '24:00', '22:61', '22:00',
             'bad', '22:00', '7:00', 'soon', '0', '-1', '30',
-            'bad', '0', '101', 'nan', '8.5', 'chosen-model', 'maybe', 'no',
+            'bad', '0', '101', 'nan', '8.5', 'chosen-model', 'high', 'maybe', 'no',
         ])
         saved = self.saved()
         self.assertEqual((saved['start'], saved['end'], saved['poll_seconds'], saved['model']),
@@ -65,9 +65,9 @@ class SetupTests(unittest.TestCase):
 
     def test_existing_settings_are_defaults(self):
         previous = dict(working_directory=str(self.root), codex='/native/codex',
-                        start='09:00', end='17:00', poll_seconds=15, quota_threshold_percent=12, model='saved-model')
+                        start='09:00', end='17:00', poll_seconds=15, quota_threshold_percent=12, model='saved-model', reasoning_effort='xhigh')
         self.target.write_text(json.dumps(previous))
-        self.wizard(['yes'] + [''] * 8)
+        self.wizard(['yes'] + [''] * 9)
         self.assertEqual(self.saved(), previous)
 
     def test_declining_replacement_leaves_file_untouched(self):
@@ -93,7 +93,7 @@ class SetupTests(unittest.TestCase):
                 raise result
             return result
 
-        self.wizard([''] * 11, runner)
+        self.wizard([''] * 12, runner)
         self.assertEqual(sum('Codex executable' in p for p in self.prompts), 4)
         self.assertEqual(sum('Start time' in p for p in self.prompts), 1)
         self.assertEqual(self.saved()['start'], '22:00')
