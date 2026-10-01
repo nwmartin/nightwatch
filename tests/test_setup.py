@@ -26,7 +26,9 @@ class SetupTests(unittest.TestCase):
             return next(answers)
 
         help_text = '--ignore-user-config --ignore-rules --output-schema --output-last-message'
-        with patch('builtins.input', side_effect=answer), \
+        # Keep the Linux-only service question in the scripted wizard on every OS.
+        with patch('nightwatch.__main__.sys.platform', 'linux'), \
+             patch('builtins.input', side_effect=answer), \
              patch('builtins.print') as output, \
              patch('nightwatch.__main__.shutil.which',
                    side_effect=lambda value: '/native/codex' if value in ('codex', '/native/codex') else None), \

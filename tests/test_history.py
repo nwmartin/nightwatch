@@ -66,7 +66,7 @@ class HistoryTests(unittest.TestCase):
         self.assertIn('no history recorded yet', text)
         self.assertIn('No tasks ran', text)
         self.assertIn('example.md: completed', text)
-        self.assertIn('report: done/example.md', text)
+        self.assertIn(f"report: {Path('done') / 'example.md'}", text)
 
     def test_daytime_window(self):
         self.assertEqual(window({'start': '09:00', 'end': '17:00'}, datetime(2026, 1, 1, 10)),
